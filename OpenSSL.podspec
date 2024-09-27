@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
   s.name         = "OpenSSL"
   s.version      = "1.0.1j"
-  s.summary      = "OpenSSL Libraries and CocoaPod with BitCode for iOS and OSX"
+  s.summary      = "OpenSSL Libraries and CocoaPod without Bitcode for iOS and OSX"
   s.description  = "OpenSSL is an SSL/TLS and Crypto toolkit. Deprecated in Mac OS and gone in iOS, this spec gives your project non-deprecated OpenSSL support. Supports OSX and iOS including Simulator (armv7, arm64, i386, x86_64)."
   s.homepage     = "https://github.com/bither/OpenSSL"
   s.license	     = { :type => 'OpenSSL (OpenSSL/SSLeay)', :file => 'LICENSE' }

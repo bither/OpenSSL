@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script downlaods and builds the iOS and Mac openSSL libraries with Bitcode enabled
+# This script downlaods and builds the iOS and Mac openSSL libraries without Bitcode enabled
 
 # Credits:
 # https://github.com/st3fan/ios-openssl
@@ -9,7 +9,7 @@
 
 set -e
 
-SDK_VERSION="9.0"
+SDK_VERSION="18.0"
 MIN_SDK_VERSION="7.0"
 
 OPENSSL_VERSION="openssl-1.0.1j"
@@ -19,7 +19,7 @@ buildMac()
 {
    ARCH=$1
 
-   echo "Building ${OPENSSL_VERSION} for ${ARCH}"
+   echo "Building ${OPENSSL_VERSION} for mac ${ARCH}"
 
    TARGET="darwin-i386-cc"
 
@@ -27,11 +27,16 @@ buildMac()
       TARGET="darwin64-x86_64-cc"
    fi
 
-   export CC="${BUILD_TOOLS}/usr/bin/clang -fembed-bitcode"
+   export CROSS_TOP="${DEVELOPER}/Platforms/MacOSX.platform/Developer"
+   export CROSS_SDK="MacOSX.sdk"
+
+   export BUILD_TOOLS="${DEVELOPER}"
+   export CC="${BUILD_TOOLS}/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
 
    pushd . > /dev/null
    cd "${OPENSSL_VERSION}"
    ./Configure no-asm ${TARGET} --openssldir="/tmp/${OPENSSL_VERSION}-${ARCH}" &> "/tmp/${OPENSSL_VERSION}-${ARCH}.log"
+   sed -ie "/^CFLAG=/s|$| -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK}|" "Makefile"
    make >> "/tmp/${OPENSSL_VERSION}-${ARCH}.log" 2>&1
    make install >> "/tmp/${OPENSSL_VERSION}-${ARCH}.log" 2>&1
    make clean >> "/tmp/${OPENSSL_VERSION}-${ARCH}.log" 2>&1
@@ -49,14 +54,14 @@ buildIOS()
       PLATFORM="iPhoneSimulator"
    else
       PLATFORM="iPhoneOS"
-      sed -ie "s!static volatile sig_atomic_t intr_signal;!static volatile intr_signal;!" "crypto/ui/ui_openssl.c"
+      # sed -ie "s!static volatile sig_atomic_t intr_signal;!static volatile intr_signal;!" "crypto/ui/ui_openssl.c"
    fi
   
    export $PLATFORM
    export CROSS_TOP="${DEVELOPER}/Platforms/${PLATFORM}.platform/Developer"
    export CROSS_SDK="${PLATFORM}${SDK_VERSION}.sdk"
    export BUILD_TOOLS="${DEVELOPER}"
-   export CC="${BUILD_TOOLS}/usr/bin/gcc -fembed-bitcode -arch ${ARCH}"
+   export CC="${BUILD_TOOLS}/usr/bin/gcc -arch ${ARCH}"
    
    echo "Building ${OPENSSL_VERSION} for ${PLATFORM} ${SDK_VERSION} ${ARCH}"
 
@@ -90,14 +95,40 @@ rm -rf "/tmp/${OPENSSL_VERSION}-*.log"
 rm -rf "${OPENSSL_VERSION}"
 
 if [ ! -e ${OPENSSL_VERSION}.tar.gz ]; then
-   echo "Downloading ${OPENSSL_VERSION}.tar.gz"
-   curl -O http://www.openssl.org/source/${OPENSSL_VERSION}.tar.gz
+   url="https://github.com/openssl/openssl/releases/download/$(echo $OPENSSL_VERSION | sed 's/[.-]/_/g' | sed 's/openssl/OpenSSL/g')/${OPENSSL_VERSION}.tar.gz"
+   echo "Downloading ${OPENSSL_VERSION}.tar.gz from ${url}"
+   wget $url
 else
    echo "Using ${OPENSSL_VERSION}.tar.gz"
 fi
 
 echo "Unpacking openssl"
-tar xfz "${OPENSSL_VERSION}.tar.gz"
+tar xzf "${OPENSSL_VERSION}.tar.gz"
+
+
+buildIOS "armv7"
+buildIOS "arm64"
+buildIOS "x86_64"
+buildIOS "i386"
+
+echo "Copying headers"
+cp /tmp/${OPENSSL_VERSION}-iOS-armv7/include/openssl/* include-ios/openssl/
+
+echo "Building iOS libraries"
+lipo \
+   "/tmp/${OPENSSL_VERSION}-iOS-armv7/lib/libcrypto.a" \
+   "/tmp/${OPENSSL_VERSION}-iOS-i386/lib/libcrypto.a" \
+   "/tmp/${OPENSSL_VERSION}-iOS-arm64/lib/libcrypto.a" \
+   "/tmp/${OPENSSL_VERSION}-iOS-x86_64/lib/libcrypto.a" \
+   -create -output lib-ios/libcrypto.a
+
+lipo \
+   "/tmp/${OPENSSL_VERSION}-iOS-armv7/lib/libssl.a" \
+   "/tmp/${OPENSSL_VERSION}-iOS-i386/lib/libssl.a" \
+   "/tmp/${OPENSSL_VERSION}-iOS-arm64/lib/libssl.a" \
+   "/tmp/${OPENSSL_VERSION}-iOS-x86_64/lib/libssl.a" \
+   -create -output lib-ios/libssl.a
+
 
 buildMac "x86_64"
 
@@ -112,38 +143,6 @@ lipo \
 lipo \
    "/tmp/${OPENSSL_VERSION}-x86_64/lib/libssl.a" \
    -create -output lib-osx/libssl.a
-
-buildIOS "armv7"
-buildIOS "arm64"
-buildIOS "x86_64"
-buildIOS "i386"
-
-echo "Copying headers"
-cp /tmp/${OPENSSL_VERSION}-iOS-armv7/include/openssl/* include-ios/openssl/
-
-echo "Building iOS libraries"
-lipo \
-   "/tmp/${OPENSSL_VERSION}-iOS-armv7/lib/libcrypto.a" \
-   "/tmp/${OPENSSL_VERSION}-iOS-i386/lib/libcrypto.a" \
-   -create -output lib-ios/libcrypto.a
-
-lipo \
-   "/tmp/${OPENSSL_VERSION}-iOS-armv7/lib/libssl.a" \
-   "/tmp/${OPENSSL_VERSION}-iOS-i386/lib/libssl.a" \
-   -create -output lib-ios/libssl.a
-
-   echo "Adding 64-bit libraries"
-   lipo \
-      "lib-ios/libcrypto.a" \
-      "/tmp/${OPENSSL_VERSION}-iOS-arm64/lib/libcrypto.a" \
-      "/tmp/${OPENSSL_VERSION}-iOS-x86_64/lib/libcrypto.a" \
-      -create -output lib-ios/libcrypto.a
-
-   lipo \
-      "lib-ios/libssl.a" \
-      "/tmp/${OPENSSL_VERSION}-iOS-arm64/lib/libssl.a" \
-      "/tmp/${OPENSSL_VERSION}-iOS-x86_64/lib/libssl.a" \
-      -create -output lib-ios/libssl.a
 
 echo "Cleaning up"
 rm -rf /tmp/${OPENSSL_VERSION}-*

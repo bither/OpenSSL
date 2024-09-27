@@ -1,1 +1,3 @@
 *.DS_Store
+openssl-*/*
+openssl-*.tar.gz
